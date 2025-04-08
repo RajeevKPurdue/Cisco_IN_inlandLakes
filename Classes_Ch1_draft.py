@@ -1157,7 +1157,7 @@ def time_index_by_lakeyear_flatdict(flat_dict, period, start_end_dates):
     print(f"Expanded date dictionary keys: {list(start_end_dates.keys())}")
 
     for key, array in flat_dict.items():
-        # ✅ Ensure proper key splitting
+        # Ensure proper key splitting
         parts = key.split('_')
 
         if len(parts) == 4:
@@ -1168,22 +1168,22 @@ def time_index_by_lakeyear_flatdict(flat_dict, period, start_end_dates):
             # Case: Preturn dictionary (e.g., "crooked_hourly_grp_2021")
             lake, timescale, variable, year = parts
         else:
-            print(f"⚠️ Skipping {key} (Unrecognized format)")
+            print(f" Skipping {key} (Unrecognized format)")
             continue
 
-        # ✅ Construct `date_key` with period included
+        # Construct `date_key` with period included
         date_key = f"{lake}_{year}_{period}_{timescale}"
         if date_key not in start_end_dates:
-            print(f"⚠️ Warning: No start/end date found for {date_key}. Skipping.")
+            print(f" Warning: No start/end date found for {date_key}. Skipping.")
             continue
 
-        # ✅ Determine number of time steps in the dataset
+        # Determine number of time steps in the dataset
         num_time_steps = array.shape[1]
 
-        # ✅ Determine frequency based on `hr` (hourly) or `day` (daily)
+        # Determine frequency based on `hr` (hourly) or `day` (daily)
         freq = "h" if "hr" in timescale or "hourly" in timescale else "d"
 
-        # ✅ Generate datetime index
+        # Generate datetime index
         time_indices[key] = pd.date_range(
             start=start_end_dates[date_key]['start_date'],
             periods=num_time_steps,
@@ -1192,7 +1192,7 @@ def time_index_by_lakeyear_flatdict(flat_dict, period, start_end_dates):
         )
 
         # Debugging prints
-        print(f"✅ Created time index for {key}: {len(time_indices[key])} timestamps ({freq})")
+        print(f" Created time index for {key}: {len(time_indices[key])} timestamps ({freq})")
 
     return time_indices
 
@@ -1225,11 +1225,11 @@ lyons_strat = normalize_keys(lyons_strat)
 lyons_pturn = normalize_keys(lyons_pturn)
 
 # Generate time indices
-# ✅ Call function for 'strat' datasets
+# Call function for 'strat' datasets
 period_dates_strat = time_index_by_lakeyear_flatdict(lyons_strat, "strat", start_end_dates)
-# ✅ Call function for 'pturn' datasets
+# Call function for 'pturn' datasets
 period_dates_pturn = time_index_by_lakeyear_flatdict(lyons_pturn, "pturn", start_end_dates)
-# ✅ Merge both into a single dictionary
+# Merge both into a single dictionary
 period_dates = {**period_dates_strat, **period_dates_pturn}
 
 
@@ -1243,60 +1243,60 @@ def plot_lyons_heatmaps(data_dict, period, period_dates, start_end_dates):
         period_dates (dict): Dictionary of datetime indices for each dataset.
         start_end_dates (dict): Dictionary with start/end date ranges for filtering.
     """
-    # ✅ Define binary colormap (white for 0, red for 1)
+    # Define binary colormap (white for 0, red for 1)
     cmap = mcolors.ListedColormap(["midnightblue", "maroon"])
     norm = mcolors.BoundaryNorm([0, 0.5, 1], cmap.N)
 
     for key, array in data_dict.items():
-        # ✅ Extract lake, time scale, and year from the key
+        # Extract lake, time scale, and year from the key
         parts = key.split('_')
         if len(parts) < 4:  # Ensure at least 'lyons', lake, time scale, and year exist
-            print(f"⚠️ Skipping {key} (Unrecognized format: expected at least 4 parts)")
+            print(f" Skipping {key} (Unrecognized format: expected at least 4 parts)")
             continue
 
         _, lake, t_scale, year = parts  # Ignore 'lyons'
 
         # Debugging print
-        print(f"🔹 Processing: {lake}, {year}, {period}, {t_scale}")
+        print(f"Processing: {lake}, {year}, {period}, {t_scale}")
 
-        # ✅ Generate start/end date key
+        # Generate start/end date key
         date_key = f"{lake}_{year}_{period}"
         if date_key in start_end_dates:
             start_date = start_end_dates[date_key]['start_date']
             end_date = start_end_dates[date_key]['end_date']
         else:
-            print(f"⚠️ Warning: No start/end date found for {date_key}. Using full range.")
+            print(f" Warning: No start/end date found for {date_key}. Using full range.")
             start_date, end_date = None, None
 
-        # ✅ Check if the dataset exists in period_dates
+        # Check if the dataset exists in period_dates
         if key not in period_dates:
-            print(f"⚠️ Warning: No date index found for {key}. Skipping.")
+            print(f" Warning: No date index found for {key}. Skipping.")
             continue
 
         date_labels = period_dates[key]
 
-        # ✅ Adjust date labels to match dataset time steps
+        # Adjust date labels to match dataset time steps
         num_time_steps = array.shape[1]
         num_dates = len(date_labels)
 
         if t_scale == "hr":
             if num_dates == num_time_steps // 24:
-                print(f"🔄 Expanding daily timestamps to hourly for {key}")
+                print(f" Expanding daily timestamps to hourly for {key}")
                 date_labels = np.repeat(date_labels, 24)
         elif t_scale == "day":
             if num_dates * 24 == num_time_steps:
-                print(f"🔄 Downsampling hourly timestamps to daily for {key}")
+                print(f" Downsampling hourly timestamps to daily for {key}")
                 date_labels = date_labels[::24]
 
-        # ✅ Final check: Ensure time matches the number of columns in the array
+        # Final check: Ensure time matches the number of columns in the array
         if array.shape[1] != len(date_labels):
-            print(f"❌ Mismatch for {key}: Array time steps ({array.shape[1]}) ≠ Date labels ({len(date_labels)})")
+            print(f"Error, Mismatch for {key}: Array time steps ({array.shape[1]}) ≠ Date labels ({len(date_labels)})")
             continue
-        # ✅ Plot heatmap with binary colormap
+        # Plot heatmap with binary colormap
         plt.figure(figsize=(12, 8))
         plt.imshow(np.flipud(array), aspect='auto', cmap=cmap, norm=norm, origin='lower') #np.flipud(array),...
 
-        # ✅ Add discrete colorbar with 0 and 1 labels
+        # Add discrete colorbar with 0 and 1 labels
         cbar = plt.colorbar(ticks=[0, 1])
         cbar.set_label("Value")
         cbar.ax.set_yticklabels(["0", "1"])
@@ -1316,7 +1316,7 @@ def plot_lyons_heatmaps(data_dict, period, period_dates, start_end_dates):
         plt.show()
 
 
-# ✅ Call function for both strat and pturn datasets
+# Call function for both strat and pturn datasets
 plot_lyons_heatmaps(lyons_strat, "strat", period_dates_strat, start_end_dates)
 plot_lyons_heatmaps(lyons_pturn, "pturn", period_dates_pturn, start_end_dates)
 #%%
@@ -1358,7 +1358,7 @@ def time_index_by_lakeyear_flatdict(flat_dict, period, start_end_dates):
     print(f"Expanded date dictionary keys: {list(start_end_dates.keys())}")
 
     for key, array in flat_dict.items():
-        # ✅ Ensure proper key splitting
+        # Ensure proper key splitting
         parts = key.split('_')
 
         if 'lyons' in parts:
@@ -1372,19 +1372,19 @@ def time_index_by_lakeyear_flatdict(flat_dict, period, start_end_dates):
             print(f"⚠️ Skipping {key} (Unrecognized format)")
             continue
 
-        # ✅ Construct `date_key` with period included
+        # Construct `date_key` with period included
         date_key = f"{lake}_{year}_{period}_{timescale}"
         if date_key not in start_end_dates:
             print(f"⚠️ Warning: No start/end date found for {date_key}. Skipping.")
             continue
 
-        # ✅ Determine number of time steps in the dataset
+        # Determine number of time steps in the dataset
         num_time_steps = array.shape[1]
 
-        # ✅ Determine frequency based on `hr` (hourly) or `day` (daily)
+        # Determine frequency based on `hr` (hourly) or `day` (daily)
         freq = "h" if "hr" in timescale or "hourly" in timescale else "d"
 
-        # ✅ Generate datetime index
+        # Generate datetime index
         time_indices[key] = pd.date_range(
             start=start_end_dates[date_key]['start_date'],
             periods=num_time_steps,
@@ -1393,7 +1393,7 @@ def time_index_by_lakeyear_flatdict(flat_dict, period, start_end_dates):
         )
 
         # Debugging prints
-        print(f"✅ Created time index for {key}: {len(time_indices[key])} timestamps ({freq})")
+        print(f" Created time index for {key}: {len(time_indices[key])} timestamps ({freq})")
 
     return time_indices
 
