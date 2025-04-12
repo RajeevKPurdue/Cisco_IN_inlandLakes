@@ -12,8 +12,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-
-
 def pyproj_yrs_flatdict(all_files, input_dir):
     data_dict = {}
     
@@ -99,6 +97,10 @@ def separate_by_timescale(data_dict):
     return hourly_dict, daily_dict
 
 def sep_T_DO_cols(data_dict, t_col, do_col):
+    """
+    Separates miniDOT T & DO cols for separate array based interpolation
+    
+    """
     t_dict = {}
     do_dict = {}
     
@@ -220,13 +222,107 @@ def presorted_resam_read(all_files, input_dir):
     
     return data_dict
 
+def csv_toarray(fpath):   # skip_blank_lines = False
+    """
+    loads csv file as an array without interpreting the first row as a header
+    Keeping .csv files and not .npy in case data are needed for R programmers
+    Parameters:
+        filepath (str)
+    """
+    array = pd.read_csv(fpath, header=None).to_numpy()
+    print(f"Loaded array from {fpath} with shape: {array.shape}")
+    return array
+
+def load_csv_files(directory):
+    """
+    Reads a directory of .csv arrays into dictionary and takes fname as key without extension
+    Parameters: 
+        directory (str): directory containing arrays stored as .csv files
+    """
+    return {os.path.splitext(f)[0]: csv_toarray(os.path.join(directory, f)) 
+            for f in os.listdir(directory) if f.endswith('.csv')}
+
+def save_arrays_to_csv(data_dict, save_dir):
+    """
+    Saves each NumPy array in a dictionary to a CSV file.
+    
+    Parameters:
+        data_dict (dict): Dictionary where keys are filenames, values are NumPy arrays.
+        save_dir (str): Directory to save the CSV files.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    for key, array in data_dict.items():
+        save_path = os.path.join(save_dir, f"{key}.csv")
+        np.savetxt(save_path, array, delimiter=",", fmt="%s")  # Use consistent formatting
+        print(f"✅ Saved: {save_path} with shape: {array.shape}")
+
+def rep_abovebelow0(Temp_array, DO_array, indices):
+    """
+    Setting depths above the shallowest sensor equal to the shallowest sensor, and deepest below equal to deepest sensor
+    Parameters:
+        Temp_array (array): 2D array filled with sensor data at given rows (depths)
+        DO_array (array): 2D array filled with sensor data at given rows (depths)
+        indices (list or array): numeric values where rows with sensor data are in your array (from least to greatest)
+    """
+    for j in range(Temp_array.shape[1]):
+        for a in range(indices[0]):
+            Temp_array[a, j] = Temp_array[indices[0], j]
+            DO_array[a, j] = DO_array[indices[0], j]
+            
+    # Setting depths below the deepest sensor equal to the deepest sensor
+        for b in range(indices[-1] + 1, Temp_array.shape[0]):
+            DO_array[b, j] = DO_array[indices[-1], j]
+            Temp_array[b, j] = Temp_array[indices[-1], j]
+    return Temp_array, DO_array
+
+def interp_locs(indices):
+    """
+    Defines indices where to interpolate rows given the depth (row) in a 2D array
+    Parameters:
+        indices (list or array): numeric values where rows with sensor data are in your array (from least to greatest)
+    """
+    interp_row1 =np.array(indices[:-1])+1
+    interp_row2 =np.array(indices[1:])-1
+    interp_points = interp_points = np.sort(np.concatenate([interp_row1, interp_row2]))
+    interp_dist = interp_row2 - interp_row1
+    
+    sensor_depth = np.array(indices[:-1])
+    sensor_nextdepth = np.array(indices[1:])
+    
+    return interp_row1, interp_row2, interp_points, interp_dist, sensor_depth,sensor_nextdepth 
 
 
-#input_dir = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/crook_test/Pycharm_test_resample'
+def interp_ugly(Temp_array, DO_array):
+    """
+    Interpolates rows (depths) for each column (time) linearly using a weighted average
+    """
+    for m in range(len(interp_row1)):
+        j_start = interp_row1[m]
+        j_end = interp_row2[m]
+        for j in range(j_start, j_end + 1):
+            weight1 = abs(j - j_end) / interp_dist[m]
+            weight2 = abs(j - j_start) / interp_dist[m]
+            for i in range(len(Temp_array[1])):
+                Temp_array[j,i] = (Temp_array[depth_value[m],i] * weight1) + (Temp_array[next_value[m],i] * weight2)
+                DO_array[j,i] = (DO_array[depth_value[m],i] * weight1) + (DO_array[next_value[m],i] * weight2)
+
+    return Temp_array, DO_array
+
+
+
+
+# Set lake depths (num rows) - 0.1 meters here - Failing = 15m & Crooked = 30m
+fail_depth = 150
+crook_depth = 300
+
+
+
+
+# ============ Define Input directory - If reading in multiple Lakes and Years =============== #
+
+#input_dir = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/crook_test/Pycharm_test_resample'
 
 #all_files = [f for f in os.listdir(input_dir) if f.endswith('.csv') and len(f.split('_'))==4]
-
-
 
 #allfiles_dict = pyproj_yrs_flatdict(all_files, input_dir)
 
@@ -240,8 +336,9 @@ def presorted_resam_read(all_files, input_dir):
 #period1_hourly, period1_daily = separate_by_timescale(period1_dict)
 #print('p1 hourly keys:', period1_hourly.keys())
 
-input_dirday = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/Failing_2yr/Raw_cat_files/Files_for_analysis/Split_periods/Periods/Period_2/Daily'
-input_dirhour = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/Failing_2yr/Raw_cat_files/Files_for_analysis/Split_periods/Periods/Period_2/Hourly'
+# ============ Define Input directory - If reading in single Lake x Year =============== #
+#input_dirday = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/Failing_2yr/Raw_cat_files/Files_for_analysis/Split_periods/Periods/Period_2/Daily'
+#input_dirhour = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/Failing_2yr/Raw_cat_files/Files_for_analysis/Split_periods/Periods/Period_2/Hourly'
 
 failday_files = [f for f in os.listdir(input_dirday) if f.endswith('.csv') and len(f.split('_'))==3]
 failhour_files = [f for f in os.listdir(input_dirhour) if f.endswith('.csv') and len(f.split('_'))==3]
@@ -256,78 +353,66 @@ t_hourly_dict, do_hourly_dict = sep_T_DO_cols(failhrs, 'Temp_C', 'DO_mg_L')
 # Daily
 t_daily_dict, do_daily_dict = sep_T_DO_cols(faildays, 'Temp_C', 'DO_mg_L')
 
-#================ Checks =======================#
-for key, df in allfiles_dict.items():
-    print(f"Key: {key}")
-    print(df.head())
-
-for key, df in period1_dict.items():
-    print(f"Key: {key}")
-    print(df.head())
-    print(df.shape)
-
-for key, df in period1_hourly.items():
-    print(f"Key: {key}")
-    print(df.head())
-
-
+#================ Checks (shape) =======================#
 for key, df in t_daily_dict.items():
     print(f"Key: {key}")
     print(df.head())
     print(df.shape)
-#================ Checks =======================#
+#================ End Checks =======================#
 
-
+#%%
 
 #================ Interpolating =======================#
 """
-# Define parameters - P1 Crook
-p1_start_date = "2021-06-24"
-p1_end_date = "2021-11-11"
-# Parameters for turnover 
-p1_crookturn_start = "2021-09-20"
-p1_crookturn_end = "2021-10-20ish"
+# Define parameters - 2021 (p1) Crook (Crooked lake)
+    p1_start_date = "2021-06-24"
+    p1_end_date = "2021-11-11"
+# Parameters for pre-turnover 
+    p1_crookturn_start = "2021-09-20"
+    p1_crookturn_end = "2021-10-20"
 """
+# Define your start and end dates  - 'Failing (fail) Lake 2022'
 p1_start_date = "2022-4-12"
 p1_end_date = "2023-06-22"
 
-
+# create a list of your array dictionaries 
 p1_dict_list = [t_hourly_dict, do_hourly_dict, t_daily_dict, do_daily_dict]
 
+# get date slices of arrays
 p1_sliced_dicts = [slice_dates(d, p1_start_date, p1_end_date) for d in p1_dict_list]
 
+# unpack each variable (Temp, DO) and timescale (hr, day)
 t_hour_dict, do_hour_dict,t_day_dict, do_day_dict = p1_sliced_dicts
 
 
-#================ Checks =======================#
+#================ Checks (shape) =======================#
+#for key, df in t_hour_dict.items():
+#    print(f"Key: {key}")
+#   print(df.head())
+#   print(df.shape)
 
-for key, df in t_hour_dict.items():
-    print(f"Key: {key}")
-    print(df.head())
-    print(df.shape)
-
-for key, df in t_day_dict.items():
-    print(f"Key: {key}")
-    print(df.head())
-    print(df.shape)
- #================ Checks =======================#
+#for key, df in t_day_dict.items():
+#    print(f"Key: {key}")
+#    print(df.head())
+#    print(df.shape)
+#================ End Checks =======================#
    
 
 
-
-        
-        
+# Convert columns to rows for input of individual files into a dataframe  (daily)   
 reshape_tdays = convert_dict_dfs_to_arrays(t_day_dict, reshape="row")
 reshape_dodays = convert_dict_dfs_to_arrays(do_day_dict, reshape="row")
 
+# Convert columns to rows for input of individual files into a dataframe  (hourly)
 reshape_thrs = convert_dict_dfs_to_arrays(t_hour_dict, reshape="row")
 reshape_dohrs = convert_dict_dfs_to_arrays(do_hour_dict, reshape="row")
-        
-fail_depth = 150
-crook_depth = 300
 
 
 
+
+
+# Create 2D array with correct dimensions 
+    # num rows = depth & num cols = time steps -  (failing lake here)
 
 t_day_arr, do_day_arr = setup_lakearr(t_day_dict, fail_depth)
 t_hours_arr, do_hours_arr = setup_lakearr(t_hour_dict, fail_depth)
@@ -341,119 +426,23 @@ dohours = populate_arrs(reshape_dohrs, do_hours_arr)
 #def checkpop()
 #nonzero_rows = np.where(tdays.any(axis=1))[0]
 
+# Depth (row) indices of sensor locations
 fail_indices = [20, 37, 53, 69, 76, 91, 130]
 crook_indices = [23, 46, 62, 76, 89, 107, 122, 137, 183, 213, 244, 274]
 
+ # generate interpolation indices and order
+interp_row1, interp_row2, interp_points, interp_dist, depth_value, next_value = interp_locs(fail_indices)      
 
-def rep_abovebelow0(Temp_array, DO_array, indices):
-    # Setting depths above the shallowest sensor equal to the shallowest sensor
-    for j in range(Temp_array.shape[1]):
-        for a in range(indices[0]):
-            Temp_array[a, j] = Temp_array[indices[0], j]
-            DO_array[a, j] = DO_array[indices[0], j]
-            
-    # Setting depths below the deepest sensor equal to the deepest sensor
-        for b in range(indices[-1] + 1, Temp_array.shape[0]):
-            DO_array[b, j] = DO_array[indices[-1], j]
-            Temp_array[b, j] = Temp_array[indices[-1], j]
-    return Temp_array, DO_array
+# fill depths above and below
+tdaysfill, dodaysfill = rep_abovebelow0(tdays, dodays, fail_indices) # Hourly data - replicate shallow to surface and deepest to bottom 
+thoursfill, dohoursfill = rep_abovebelow0(thours, dohours, fail_indices) # Daily data - replicate shallow to surface and deepest to bottom 
 
-"""
-    IN CASE ADDING INDICES AS INPUT PARAMETER DOESNT WORK FOR WHATEVER REASON - THIS WORKS 
-
-def rep_abovebelow(Temp_array, DO_array):
-    # Setting depths above the shallowest sensor equal to the shallowest sensor
-    for j in range(Temp_array.shape[1]):
-        for a in range(crook_indices[0]):
-            Temp_array[a, j] = Temp_array[crook_indices[0], j]
-            DO_array[a, j] = DO_array[crook_indices[0], j]
-            
-    # Setting depths below the deepest sensor equal to the deepest sensor
-        for b in range(crook_indices[11] + 1, Temp_array.shape[0]):
-            DO_array[b, j] = DO_array[crook_indices[11], j]
-            Temp_array[b, j] = Temp_array[crook_indices[11], j]
-    return Temp_array, DO_array
-"""
-def rep_abovebelow(data1, data2, fail_indices):
-    """
-    Copies values from the first `fail_indices` row to all rows above it,
-    and copies values from the last `fail_indices` row to all rows below it.
-
-    Parameters:
-        data1 (np.ndarray): First 2D NumPy array.
-        data2 (np.ndarray): Second 2D NumPy array.
-        fail_indices (list of int): Indices of rows that define the filling boundaries.
-
-    Returns:
-        tuple: (Filled data1, Filled data2)
-    """
-    filled_data1 = data1.copy()
-    filled_data2 = data2.copy()
-
-    rows, cols = filled_data1.shape
-
-    if not fail_indices:
-        return filled_data1, filled_data2  # Return unchanged if no fail indices
-
-    # Fill all rows ABOVE the first fail index
-    first_fail = fail_indices[0]  # First fail index
-    if first_fail > 0:  # Ensure we are not already at the top row
-        filled_data1[:first_fail] = filled_data1[first_fail]
-        filled_data2[:first_fail] = filled_data2[first_fail]
-
-    # Fill all rows BELOW the last fail index
-    last_fail = fail_indices[-1]  # Last fail index
-    if last_fail < rows - 1:  # Ensure we are not already at the bottom row
-        filled_data1[last_fail + 1:] = filled_data1[last_fail]
-        filled_data2[last_fail + 1:] = filled_data2[last_fail]
-
-    return filled_data1, filled_data2
+# interpolate 
+Temp_arrayday, DO_arraydayold = interp_ugly(tdaysfill, dodaysfill) # Daily data - interpolate all Failing indices
+Temp_arrayhr, DO_arrayhrold = interp_ugly(thoursfill, dohoursfill) # Hourly data - interpolate all Failing indices
 
 
-tdaysfill, dodaysfill = rep_abovebelow0(tdays, dodays, fail_indices)
-
-thoursfill, dohoursfill = rep_abovebelow0(thours, dohours, fail_indices)
-
-
-
-def interp_locs(indices):
-    interp_row1 =np.array(indices[:-1])+1
-    interp_row2 =np.array(indices[1:])-1
-    interp_points = interp_points = np.sort(np.concatenate([interp_row1, interp_row2]))
-    interp_dist = interp_row2 - interp_row1
-    
-    sensor_depth = np.array(indices[:-1])
-    sensor_nextdepth = np.array(indices[1:])
-    
-    return interp_row1, interp_row2, interp_points, interp_dist, sensor_depth,sensor_nextdepth 
-
-
-
-interp_row1, interp_row2, interp_points, interp_dist, depth_value, next_value = interp_locs(fail_indices)
-
-
-def interp_ugly(Temp_array, DO_array):
-    for m in range(len(interp_row1)):
-        j_start = interp_row1[m]
-        j_end = interp_row2[m]
-        for j in range(j_start, j_end + 1):
-            weight1 = abs(j - j_end) / interp_dist[m]
-            weight2 = abs(j - j_start) / interp_dist[m]
-            for i in range(len(Temp_array[1])):
-                Temp_array[j,i] = (Temp_array[depth_value[m],i] * weight1) + (Temp_array[next_value[m],i] * weight2)
-                DO_array[j,i] = (DO_array[depth_value[m],i] * weight1) + (DO_array[next_value[m],i] * weight2)
-
-    return Temp_array, DO_array
-
-
-Temp_arrayday, DO_arraydayold = interp_ugly(tdaysfill, dodaysfill)
-
-
-Temp_arrayhr, DO_arrayhrold = interp_ugly(thoursfill, dohoursfill)
-
-
-
-# ============ LEAVE OUT ======================#
+# ============ Optional - LEAVE OUT Sensor at 7.6m (Row # = 76)  ======================#
 
 
 fail_indices_2022DO = [20, 37, 53, 69, 91, 130]
@@ -475,26 +464,36 @@ def interp_ugly_failno76DO(DO_array, Temp_array):
     return DO_array, Temp_array
 
 
-DO_arrayday, Temp_daynew = interp_ugly_failno76DO(dodaysfill, tdaysfill)
+#DO_arrayday, Temp_daynew = interp_ugly_failno76DO(dodaysfill, tdaysfill)  # leave out 7.6m sensor (daily data)
+#DO_arrayhr, Temp_hrnew = interp_ugly_failno76DO(dohoursfill, thoursfill) # leave out 7.6m sensor (hourly data)
 
-DO_arrayhr, Temp_hrnew = interp_ugly_failno76DO(dohoursfill, thoursfill)
-
-
-#DOdayflp=np.flipud(DO_arrayday)
-#DOhrflp=np.flipud(DO_arrayhr)
+#DOdayflp=np.flipud(DO_arrayday) # flip the array for visualizaion (lake surface to bottom)
+#DOhrflp=np.flipud(DO_arrayhr)   # flip the array for visualizaion (lake surface to bottom)
 # ============ LEAVE OUT ======================#
 
 
 
-
+#%%
 # ============ Plotting ======================#
+"""
+Visual Check here
+                  Visual Check here
+                  Visual Check here
+Visual Check here
+"""
 
 
-day_indx = t_day_dict[ 'fail_5.3_daily'].index
+
+# Use respective time columns from any singular sensor used ('EST_DateTime') to index the x axis for plotting
+day_indx = t_day_dict[ 'fail_5.3_daily'].index     
 hr_indx = t_hour_dict[ 'fail_5.3_hourly'].index
 
 def flip_and_plot(arrays, time_index, plot=True, figsize=(12, 8), time_format ="%Y-%m-%d"):
-    flipped_arrays = [(arr) for arr in arrays]              #np.flipud(arr)...
+    """
+    Takes input of a list of 2D arrays, a time index of equal size for the x-axis, and plots a heatmap with a y-axis from lake surface to bottom
+    incorporate the # np.flipud(arr)... # in the first line if necessary
+    """
+    flipped_arrays = [(arr) for arr in arrays]              # include to offset the invert axis command if array is reflected about y-axis --- np.flipud(arr)...
     #time_index = day_indx
     if isinstance(plot, bool) and plot:
         time_labels = time_index.to_numpy()  # Convert index to numpy array
@@ -519,58 +518,49 @@ def flip_and_plot(arrays, time_index, plot=True, figsize=(12, 8), time_format ="
 
     return flipped_arrays  
 
-# new DO 
+# Sensor at 7.6m left out - '{timescale}new'
+#    Create lists of however many arrays based on need
 leave76outdays = [DO_arrayday,Temp_daynew]
 leave76outhours = [DO_arrayhr, Temp_hrnew]
-
+#    Plot
 flip_and_plot(leave76outdays, day_indx)
-
 flip_and_plot(leave76outhours, hr_indx)
 
-# old DO
+# All sensors - '{timescale}old'
+#    Create lists of however many arrays based on need
 old_days = [Temp_arrayday, DO_arraydayold]
 old_hrs = [Temp_arrayhr, DO_arrayhrold]
-
+#    Plot
 flip_and_plot(old_days, day_indx)
-
 flip_and_plot(old_hrs, hr_indx)
 
 
-# ======== SAve #2 day , hour===========# REDOING WITH SAFE SAVE CODE
-def csv_toarray(fpath):   # skip_blank_lines = False
-    array = pd.read_csv(fpath, header=None).to_numpy()
-    print(f"Loaded array from {fpath} with shape: {array.shape}")
-    return array
 
-"load_csv_files is unchanged by deepseek"
-def load_csv_files(directory):
-    "Reads into dictionary and takes fname as key without extension"
-    return {os.path.splitext(f)[0]: csv_toarray(os.path.join(directory, f)) 
-            for f in os.listdir(directory) if f.endswith('.csv')}
-
-def save_arrays_to_csv(data_dict, save_dir):
-    """
-    Saves each NumPy array in a dictionary to a CSV file.
-    
-    Parameters:
-        data_dict (dict): Dictionary where keys are filenames, values are NumPy arrays.
-        save_dir (str): Directory to save the CSV files.
-    """
-    os.makedirs(save_dir, exist_ok=True)
-    for key, array in data_dict.items():
-        save_path = os.path.join(save_dir, f"{key}.csv")
-        np.savetxt(save_path, array, delimiter=",", fmt="%s")  # Use consistent formatting
-        print(f"✅ Saved: {save_path} with shape: {array.shape}")
+#%%
+# ======== Save selected outputs ===========# 
+"""
+ Save selected outputs
+ Save selected outputs 
+"""
 
 
+
+# Dictionary of filenames (key) and arrays (value) to save as .csv files
 fail_76_out_tdo = {'fail_day_Temp_array_2022': DO_arrayday, 'fail_day_DO_array_2022': Temp_daynew,
                  'fail_hr_Temp_array_2022': DO_arrayhr, 'fail_hr_DO_array_2022': Temp_hrnew }
 
-
+# Save directory
 outdir = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/Failing_2yr/fail_Comp_Arrays_2022'
-
-
+# Save to desired path
 save_arrays_to_csv(fail_76_out_tdo, outdir)
+
+
+
+
+#%%
+"""
+This cell is for checking data, averaging out days of removal in the field 
+"""
 
 # Load the array back
 test_fail2022 = load_csv_files(outdir)
@@ -747,75 +737,6 @@ print(result)
 
 
 #%%
-
-"OLD SAVE CODE"
-
-
-folder_path = '/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/Fail_P2_leaveoutsfixes/Save_2'
-
-DO_arrayday, Temp_daynew = leave76outdays
-
-# Define filenames
-temp_filename = 'fail_day_Temp_array_2022.csv'
-do_filename = 'fail_day_DO_array_2022.csv'
-
-# Construct full file paths
-file_path1 = os.path.join(folder_path, temp_filename)
-file_path2 = os.path.join(folder_path, do_filename)
-
-# ✅ Save arrays as CSV
-np.savetxt(file_path1, Temp_daynew, delimiter=',')
-np.savetxt(file_path2, DO_arrayday, delimiter=',')
-
-
-DO_arrayhr, Temp_hrnew = leave76outhours
-
-# Define filenames
-temp_filename = 'fail_hr_Temp_array_2022.csv'
-do_filename = 'fail_hr_DO_array_2022.csv'
-
-# Construct full file paths
-file_path1 = os.path.join(folder_path, temp_filename)
-file_path2 = os.path.join(folder_path, do_filename)
-
-# ✅ Save arrays as CSV
-np.savetxt(file_path1, Temp_hrnew, delimiter=',')
-np.savetxt(file_path2, DO_arrayhr, delimiter=',')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-oldfullDOday = pd.read_csv('/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/P2_compliled/failDOday_P2comp.csv')
-oldfullDOhr = pd.read_csv('/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/P2_compliled/fail_hrs/failDOhr_P2comp copy.csv')
-
-oldfullDOday = np.asarray(oldfullDOday)
-oldfullDOhr= np.flipud(np.asarray(oldfullDOhr))
-oldfullDOday = np.flipud(oldfullDOday )
-
-flip_and_plot([oldfullDOday], day_indx)
-flip_and_plot([oldfullDOhr], day_indx)
-
-
-oldtemphr = pd.read_csv('/Users/rajeevkumar/Documents/Labs/HöökLab/Chapter_1/Data/2yr_datasets/P2_compliled/fail_hrs/failTemphr_P2compcopy.csv')
-
-
-
-oldtemphr = np.flipud(np.asarray(oldtemphr))
-
-flip_and_plot([oldtemphr], day_indx)
-
 
 
 
