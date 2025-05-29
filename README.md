@@ -27,4 +27,4 @@ This project is licensed under the [Apache License 2.0](LICENSE) - see the LICEN
 
 ## Acknowledgments
 
-If you use this code in published work, please acknowledge its use and consider citing any relevant publications.
+If you use this code in published work, please acknowledge its use and cite any relevant publications.
