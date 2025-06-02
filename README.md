@@ -14,13 +14,7 @@ Processing, Summarization, Interpolation, and Visualization of inland lake oxyth
 
 ## Citation
 
-If you use this software in your research, please cite:
-
-[Your Name]. (Year). [Repository Name]. GitHub. https://github.com/username/repo-name
-
-Or in academic format:
-Author, A. (2025). Project Title. Software. GitHub repository. https://github.com/username/repo
-
+Kumar, R. (2025). InLake Cisco. GitHub. https://github.com/RajeevKPurdue/Cisco_IN_inlandLakes
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE) - see the LICENSE file for details.
