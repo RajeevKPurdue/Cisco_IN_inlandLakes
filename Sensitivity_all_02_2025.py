@@ -21,7 +21,7 @@ Listing packages and functions with data together during validation in code
 import os
 import numpy as np
 import pandas as pd
-import seaborn as sns
+#import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.colors as mcolors
 from matplotlib.ticker import MaxNLocator  # For adaptive tick formatting
@@ -130,9 +130,15 @@ print(f"Temp shape {Temp_array.shape}")
 
 # Run 1 used above
 """
+# Original
+#DO_array = np.linspace(0, 10, 50)
+#Temp_array = np.linspace(5, 30, 50)
 
-DO_array = np.linspace(0, 10, 50)
-Temp_array = np.linspace(5, 30, 50)
+# Even
+DO_array = np.linspace(0, 10, 49)
+Temp_array = np.linspace(5, 30, 49)
+
+Temp_grid, DO_grid = np.meshgrid(Temp_array, DO_array)
 
 # run 2 for all combinations == nightmare but needed (truncating array steps in half)
 T_DO_pairs = np.array(list(itertools.product(Temp_array, DO_array)))  # (10000, 2)
@@ -401,8 +407,8 @@ def calculate_fdos(DO_array, Temp_array, slope_val, intercept_val):
 
 
 # Define the parameter ranges
-DO_array = np.linspace(0, 7, 8)  # Dissolved oxygen range (mg/L)
-Temp_array = np.linspace(5, 30, 50)  # Temperature range (°C)
+#DO_array = np.linspace(0, 7, 8)  # Dissolved oxygen range (mg/L)
+#Temp_array = np.linspace(5, 30, 50)  # Temperature range (°C)
 slope_vals = np.array([0.168, 0.138])
 intercept_vals = np.array([1.63, 2.09])
 
@@ -456,6 +462,8 @@ df_fdos['DO'] = DO_arr
 # match the dims - below example from stack exchange - could make a simple function (array, repeats, axis)... if this is needed for many later 
 #b = np.repeat(a[:, :, np.newaxis], 3, axis=2)
 
+
+
 DO_arrmod = np.repeat(DO_array[:, np.newaxis],4,axis=1)
 Temp_arrmod = np.repeat(Temp_array[:, np.newaxis],4,axis=1)
 
@@ -503,6 +511,14 @@ plots = list(fdo_1D)
 " ------- ARRAY and DICTIONARY BASED ------- CONTOUR INDIVDUAL AND PAR/SUB PLOTS------"
 # Calc 2D arrays fDO and fDO_lethal
 
+slope_vals = np.array([0.168, 0.138])
+intercept_vals = np.array([1.63, 2.09])
+
+slope_ints = np.array([(0.138,1.63), (0.138,2.09), (0.168,1.63), (0.138,2.09)])
+
+DO_array = np.linspace(0, 10, 49)
+Temp_array = np.linspace(5, 30, 49)
+
 # Make grid
 DO_grid, Temp_grid = np.meshgrid(DO_array, Temp_array)
 
@@ -521,6 +537,101 @@ for slope in slope_vals:
         # Store in dictionaries
         fDO_results[key] = fDO_array
         fDO_lethal_results[key_lethal] = fDO_ltl_array
+
+
+# Define the function for calculating fish growth
+def calculate_growth_fdos_2D(DO_array, Temp_array, mass_coeff, P_coeff, AD_arr, slope_val, intercept_val):
+    DOcrit = slope_val * Temp_array + intercept_val # vary - this is the highest so far 
+    fDO = DO_array / DOcrit
+    #fDO = np.minimum(fDO, 1.0)  # Cap values greater than 1 to 1
+    fDO = np.clip(fDO, 0,1)
+    
+    t_lethal =  Temp_array #np.minimum(Temp_array, 22.9999999) # cap values to asymptote where all normoxia is lethal
+    DO_lethal = 0.4 + 0.000006*(np.exp(0.59*t_lethal))
+    fdo_lethal = (DO_array- DO_lethal)/ DOcrit
+    fdo_lethal = np.clip(fdo_lethal, 0, 1)
+    
+    mass = np.full_like(Temp_array, 1 * mass_coeff)  # mass sensitivity test
+    # Parameters
+    CA = 1.61
+    CB = -0.538
+    CQ = 3.53
+    CTO = 16.8
+    CTM = 26.0
+
+    # Respiration parameters
+    RA = 0.0018
+    RB = -0.12
+    RQ = 0.047
+    RTO = 0.025
+    RTM = 0.0
+    RTL = 0.0
+    RK1 = 7.23
+
+    Vel = RK1 * np.power(mass, 0.025) #was 0.25 (Rustam cm/s- changed to R4= 0.025 (Hanson 3.0 derived from rudstam))
+    ACT = np.exp(RTO * Vel)
+    SDA = 0.17
+
+    # Egestion and excretion factors
+    FA = 0.25
+    UA = 0.1
+
+    # Predator energy density and OCC
+    ED = 6500
+    OCC = 13556.0
+    # Define AD values
+    AD = np.full_like(Temp_array, AD_arr, dtype=np.float64)  # Ensure AD is a 2D array
+    AD_benthos = 2000  # Schaeffer et al. 1999 - Arend 2011
+
+    # Apply AD_benthos to the bottom row (last depth layer)
+    AD[-1, :] = AD_benthos  # Now correctly modifying the last row
+
+    # Consumption calculation with variable coefficient
+    P = P_coeff * fDO
+    P_lethal = P_coeff * fdo_lethal
+
+    V = (CTM - Temp_array) / (CTM - CTO)
+    V = np.maximum(V, 0.0)
+    Z = np.log(CQ) * (CTM - CTO)
+    Y = np.log(CQ) * (CTM - CTO + 2.0)
+    X = (Z ** 2.0) * (1.0 + ((1.0 + 40.0) / Y) ** 0.5) ** 2 / 400.0
+    Ft = (V ** X) * np.exp(X * (1.0 - V))
+    Cmax = CA * (mass ** CB)
+    C = Cmax * Ft * P
+    C_lethal = Cmax * Ft * P_lethal
+
+    F = FA * C
+    S = SDA * (C - F)
+    Ftr = np.exp(RQ * Temp_array)
+    R = RA * (mass ** RB) * Ftr * ACT
+    U = UA * (C - F)
+
+    GRP = C - (S + F + U) * (AD / ED) - (R * OCC) / ED
+    GRP_lethal = C_lethal - (S + F + U) * (AD / ED) - (R * OCC) / ED
+    return GRP, GRP_lethal
+
+
+
+
+# Run Model iterations and load by parameter keys into dictionaries 
+GRP_results ={}
+GRP_lethal_results = {}
+
+for mass_coeff in mass_coefficients:
+    for P_coeff in P_coefficients:
+        for AD_arr in AD_values:
+            for slope in slope_vals:
+                for intercept in intercept_vals:
+                    # Compute GRP and GRP_lethal
+                    GRP_array, GRP_lethal_array = calculate_growth_fdos_2D(DO_grid, Temp_grid, mass_coeff, P_coeff, AD_arr, slope, intercept)
+
+                    # Generate dictionary keys
+                    key = f"GRP_P{P_coeff}_mass{mass_coeff}_slope{slope}_intercept{intercept}"
+                    key_lethal = f"GRP_lethal_P{P_coeff}_mass{mass_coeff}_slope{slope}_intercept{intercept}"
+
+                    # Store in dictionaries
+                    GRP_results[key] = GRP_array
+                    GRP_lethal_results[key_lethal] = GRP_lethal_array
         
         
 "---------- CONTOUR PLOTS FROM DICT _ INDIVIDUAL THEN SUBPLOTS --------------"
@@ -536,8 +647,8 @@ def contour_fdos(Temp_grid, DO_grid, fdogrid, cmap = 'seismic', cbar_label = 'la
 
 
 
-#for key, value in fDO_results.items():
-#    contour_fdos(Temp_grid, DO_grid, value, cmap = 'seismic', cbar_label = f'{key} value', title = f'countour of {key}')
+for key, value in fDO_results.items():
+    contour_fdos(Temp_grid, DO_grid, value, cmap = 'seismic', cbar_label = f'{key} value', title = f'countour of {key}')
 
 
 #for key, value in fDO_lethal_results.items():
@@ -557,28 +668,103 @@ def contour_fdos1(ax, Temp_grid, DO_grid, fdogrid, cmap='seismic', cbar_label='l
 
 # Select the first four keys to plot
 keys_to_plot = list(fDO_results.keys())[:4]  # Get the first 4 keys
-fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # Create a 2x2 grid of subplots
 
+keys_to_plot1 = ['fDO_slope0.168_intercept1.63','fDO_slope0.138_intercept2.09' ]
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # Create a 2x2 grid of subplots
 # Loop through the selected keys and corresponding axes
 for ax, key in zip(axes.flat, keys_to_plot):
     contour_fdos1(ax, Temp_grid, DO_grid, fDO_results[key], cmap='seismic', 
-                 cbar_label=f'{key} value', title=f'Contour of {key}')
+                 cbar_label='Value', title=f'{key}'.replace('_',', '))
 
 plt.tight_layout()  # Adjust layout for better spacing
 plt.show()
 
 # Select the first four keys to plot
 keys_to_plot_lethal = list(fDO_lethal_results.keys())[:4]  # Get the first 4 keys
-fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # Create a 2x2 grid of subplots
 
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # Create a 2x2 grid of subplots
 # Loop through the selected keys and corresponding axes
 for ax, key in zip(axes.flat, keys_to_plot_lethal):
     contour_fdos1(ax, Temp_grid, DO_grid, fDO_lethal_results[key], cmap='seismic', 
-                 cbar_label=f'{key} value', title=f'Contour of {key}')
+                 cbar_label='Value', title=f'{key}'.replace('_',', '))
 
 plt.tight_layout()  # Adjust layout for better spacing
 plt.show()
 
+
+
+
+### Checking fDO for failing 2022 pturn odd pattterns - NOne where fDO_lethal is more lenient
+
+# mask is where fDO_lethal is greater which is a smaller penalty on C
+mask = fDO_lethal_results['fDO_lethal_slope0.168_intercept1.63'] > fDO_results['fDO_slope0.168_intercept1.63']
+
+check_dict = {'arend': fDO_lethal_results['fDO_lethal_slope0.168_intercept1.63'], 'jac': fDO_results['fDO_slope0.168_intercept1.63']}
+
+for key, value in check_dict.items():
+    # Create a new array that has the same shape as value; values where the mask is False become NaN.
+    masked_value = np.where(mask, value, np.nan)
+    contour_fdos(Temp_grid, DO_grid, masked_value,
+                 cmap='seismic', 
+                 cbar_label=f'{key} value', 
+                 title=f'{key} indices where fDO greater than fDO_lethal')
+
+
+#33333 Checking GRP for reason above
+# mask is where GRP is greater than GRP_lethal
+maskgrp = GRP_lethal_results["GRP_lethal_P0.4_mass200_slope0.168_intercept1.63"] > GRP_results["GRP_P0.4_mass200_slope0.168_intercept1.63"]
+
+grp_fail_dict = {
+    'grp_fail': GRP_results["GRP_P0.4_mass200_slope0.168_intercept1.63"],
+    'grp_lethalfail': GRP_lethal_results["GRP_lethal_P0.4_mass200_slope0.168_intercept1.63"]}
+
+
+for key, value in grp_fail_dict.items():
+    # Create a new array that has the same shape as value; values where the mask is False become NaN.
+    #masked_value = np.where(maskgrp, value, np.nan)
+    masked_value = (maskgrp)
+    contour_fdos(Temp_grid, DO_grid, masked_value,
+                 cmap='seismic', 
+                 cbar_label=f'{key} value', 
+                 title=f'{key} indices where GRP greater than GRP_lethal')
+
+
+
+
+
+# mask is where GRP is greater than GRP_lethal
+maskgrp = GRP_results["GRP_P0.4_mass200_slope0.168_intercept1.63"] >=  GRP_lethal_results["GRP_lethal_P0.4_mass200_slope0.168_intercept1.63"]
+
+
+
+masked_value = (maskgrp)
+contour_fdos(Temp_grid, DO_grid, masked_value,
+              cmap='seismic', 
+              cbar_label=f'{key} value', 
+              title=f'{key} indices where GRP greater than GRP_lethal')
+
+
+
+# mask is where GRP is greater than GRP_lethal
+maskgrp = GRP_results["GRP_P0.4_mass200_slope0.168_intercept1.63"] >=  GRP_lethal_results["GRP_lethal_P0.4_mass200_slope0.168_intercept1.63"]
+
+
+plt.figure(figsize=(8, 6))
+contour1 = plt.contour(Temp_grid, DO_grid, maskgrp, levels=(1), cmap="coolwarm")
+plt.colorbar(label="where GRP > GRP_lethal (False, True)")
+plt.xlabel("Temperature (°C)")
+plt.ylabel("Dissolved Oxygen (mg/L)")
+plt.title("title")
+plt.show()
+
+
+"""
+for k in keys_to_plot_lethal:
+    for key in keys_to_plot:
+        where = np.where(fDO_lethal_results[k] < fDO_results[key])
+"""
 
 
 
